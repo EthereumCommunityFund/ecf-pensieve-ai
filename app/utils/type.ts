@@ -55,7 +55,6 @@ const coreSchema = z.object({
       z.object({
         name: z.string(),
         title: z.string(),
-        region: z.string().optional(),
       })
     )
     .min(1),
