@@ -837,15 +837,10 @@ function buildSubmissionPayload(
     .map((founder) => ({
       name: sanitizeString(founder?.name),
       title: sanitizeString(founder?.title),
-      region: sanitizeNullableString(founder?.region),
     }))
     .filter((founder) => founder.name && founder.title)
     .map((founder) => {
-      const region = founder.region ?? null;
-      if (!region) {
-        return { name: founder.name, title: founder.title };
-      }
-      return { name: founder.name, title: founder.title, region };
+      return { name: founder.name, title: founder.title };
     });
   if (founders.length === 0) {
     throw new Error("Please provide at least one founder with name and title.");
