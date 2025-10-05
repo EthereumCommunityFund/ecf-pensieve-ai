@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/projectFill/route.ts": {
+      "runtime": "edge",
+      "regions": ["sfo1"]
+    }
+  }
+}
