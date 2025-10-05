@@ -11,7 +11,7 @@ import {
 } from "@/app/service/rootdata";
 import { EnvConfig } from "@/app/utils/type";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 const querySchema = z.object({
   q: z.string().min(1),

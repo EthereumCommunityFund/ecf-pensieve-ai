@@ -6,7 +6,7 @@ import { EnvConfig, coreSchema } from "@/app/utils/type";
 import { fetchRootDataByProjectId } from "@/app/service/rootdata";
 import { getErrorMessage, loadEnv, noStoreHeaders } from "@/app/api/shared";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 const requestSchema = z.object({
   projectId: z.number().min(1),
