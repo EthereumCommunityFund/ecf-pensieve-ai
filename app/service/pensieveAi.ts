@@ -1,6 +1,7 @@
 import superjson from "superjson";
 
 const TRPC_CREATE_PROJECT_ROUTE = "/api/trpc/project.createProjectViaAI";
+const TRPC_CHECK_PROJECT_ROUTE = "/api/trpc/project.checkProjectName";
 
 export interface ProjectWebsite {
   title: string;
@@ -85,36 +86,99 @@ export async function createProjectViaAI(
   options: CreateProjectViaAIOptions
 ) {
   validateOptions(options);
-  const url = buildRequestUrl(options.baseUrl);
+  const url = buildRequestUrl(options.baseUrl, TRPC_CREATE_PROJECT_ROUTE);
   const headers = buildHeaders(options.systemToken);
   const body = superjson.stringify(payload);
 
   try {
-    await fetch(url, {
+    const response = await fetch(url, {
       method: "POST",
       headers,
       body,
       signal: options.signal,
     });
+    return response.json();
   } catch (networkError) {
     const message = getErrorMessage(networkError);
     console.error("createProjectViaAI network error", message);
     throw new Error(`Failed to reach Pensieve service: ${message}`);
   }
-
-  return {};
 }
 
-function buildRequestUrl(baseUrl: string): string {
+export interface CheckProjectNameOptions {
+  baseUrl: string;
+  systemToken: string;
+  signal?: AbortSignal;
+}
+
+export interface CheckProjectNameResult {
+  exists: boolean;
+}
+
+export async function checkProjectName(
+  name: string,
+  options: CheckProjectNameOptions
+): Promise<CheckProjectNameResult> {
+  validateOptions(options);
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+  if (!trimmedName) {
+    throw new Error("Project name cannot be empty");
+  }
+
+  const route = buildRequestUrl(options.baseUrl, TRPC_CHECK_PROJECT_ROUTE);
+  const url = new URL(route);
+  url.searchParams.set("input", superjson.stringify({ name: trimmedName }));
+  const headers = buildHeaders(options.systemToken, {
+    includeContentType: false,
+  });
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers,
+      signal: options.signal,
+    });
+
+    const payload = await response.json();
+    const data = extractTrpcJson<CheckProjectNameResult>(payload);
+    if (data && typeof data.exists === "boolean") {
+      return { exists: data.exists };
+    }
+
+    const pensieveError = extractTrpcErrorMessage(payload);
+    if (pensieveError) {
+      throw new Error(pensieveError);
+    }
+
+    throw new Error("Pensieve returned an unexpected response for checkProjectName.");
+  } catch (networkError) {
+    const message = getErrorMessage(networkError);
+    console.error("checkProjectName network error", message);
+    throw new Error(`Failed to reach Pensieve service: ${message}`);
+  }
+}
+
+function buildRequestUrl(baseUrl: string, route: string): string {
   const trimmed = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
-  return `${trimmed}${TRPC_CREATE_PROJECT_ROUTE}`;
+  return `${trimmed}${route}`;
 }
 
-function buildHeaders(systemToken: string): Record<string, string> {
+interface BuildHeadersOptions {
+  includeContentType?: boolean;
+}
+
+function buildHeaders(
+  systemToken: string,
+  options?: BuildHeadersOptions
+): Record<string, string> {
   const headers: Record<string, string> = {
-    "content-type": "application/json",
     "x-ai-system-token": systemToken,
   };
+
+  if (options?.includeContentType ?? true) {
+    headers["content-type"] = "application/json";
+  }
+
   return headers;
 }
 

@@ -33,8 +33,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  console.log("payload", payload);
-
   const parsed = requestSchema.safeParse(payload);
   if (!parsed.success) {
     return NextResponse.json(

@@ -178,6 +178,7 @@ export default function Home() {
   const [fillData, setFillData] = useState<ProjectFillResponse | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
   const [submitting, setSubmitting] = useState(false);
+  const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
 
   const emptyFounder = useMemo<FounderFormValue>(
     () => ({ name: "", title: "", region: "" }),
@@ -256,41 +257,100 @@ export default function Home() {
   };
 
   const handleSelectProject = async (item: RootDataSearchResult) => {
-    setSelectedResult(item);
-    setModalVisible(true);
-    setFillLoading(true);
-    try {
-      const response = await fetch("/api/projectFill", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: item.id }),
-      });
+    if (loadingProjectId && loadingProjectId !== item.id) {
+      messageApi.info("Please wait for the current project to finish loading.");
+      return;
+    }
 
-      if (!response.ok) {
-        const errorBody = await safeJson(response);
+    if (loadingProjectId === item.id) {
+      return;
+    }
+
+    const normalizedName =
+      typeof item?.name === "string" ? item.name.trim() : "";
+    if (!normalizedName) {
+      messageApi.error("Selected project is missing a name.");
+      return;
+    }
+
+    setLoadingProjectId(item.id);
+
+    try {
+      try {
+        const checkResponse = await fetch("/api/checkProjectName", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: normalizedName }),
+        });
+
+        if (!checkResponse.ok) {
+          const errorBody = await safeJson(checkResponse);
+          const messageText =
+            errorBody?.error ?? "Failed to verify project name.";
+          throw new Error(messageText);
+        }
+
+        const checkData = await safeJson(checkResponse);
+        const exists = Boolean(
+          checkData && typeof checkData === "object" && "exists" in checkData
+            ? (checkData as { exists?: boolean }).exists
+            : false
+        );
+
+        if (exists) {
+          messageApi.warning(
+            "Project name already exists. Please select a different project."
+          );
+          return;
+        }
+      } catch (error) {
         const messageText =
-          errorBody?.error ?? "Failed to fetch project details.";
-        throw new Error(messageText);
+          error instanceof Error ? error.message : String(error);
+        messageApi.error(messageText);
+        return;
+      } finally {
+        setLoadingProjectId(null);
       }
 
-      const data: ProjectFillResponse = await response.json();
-      setFillData({
-        ...data,
-        codeRepo: data.codeRepo,
-        founders:
-          Array.isArray(data.founders) && data.founders.length > 0
-            ? data.founders
-            : [emptyFounder],
-      });
+      setSelectedResult(item);
+      setModalVisible(true);
+      setFillLoading(true);
+
+      try {
+        const response = await fetch("/api/projectFill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: item.id }),
+        });
+
+        if (!response.ok) {
+          const errorBody = await safeJson(response);
+          const messageText =
+            errorBody?.error ?? "Failed to fetch project details.";
+          throw new Error(messageText);
+        }
+
+        const data: ProjectFillResponse = await response.json();
+        setFillData({
+          ...data,
+          codeRepo: data.codeRepo,
+          founders:
+            Array.isArray(data.founders) && data.founders.length > 0
+              ? data.founders
+              : [emptyFounder],
+        });
+      } catch (error) {
+        const messageText =
+          error instanceof Error ? error.message : String(error);
+        messageApi.error(messageText);
+        setModalVisible(false);
+        setSelectedResult(null);
+        setFillData(null);
+      } finally {
+        setFillLoading(false);
+      }
     } catch (error) {
-      const messageText =
-        error instanceof Error ? error.message : String(error);
-      messageApi.error(messageText);
-      setModalVisible(false);
-      setSelectedResult(null);
-      setFillData(null);
-    } finally {
-      setFillLoading(false);
+      console.error(error);
     }
   };
 
@@ -330,11 +390,11 @@ export default function Home() {
       }
 
       const data = await response.json();
-      messageApi.success(
-        data?.projectId
-          ? `Project submitted successfully (ID: ${data.projectId}).`
-          : "Project submitted successfully."
-      );
+      if (data?.error) {
+        messageApi.error(data.error.json.message);
+        return;
+      }
+      messageApi.success("Project submitted successfully.");
       handleModalCancel();
     } catch (error) {
       const messageText =
@@ -398,35 +458,71 @@ export default function Home() {
             <List.Item
               key={item.id}
               onClick={() => handleSelectProject(item)}
-              style={{ cursor: "pointer" }}
+              style={{
+                position: "relative",
+                cursor:
+                  loadingProjectId && loadingProjectId !== item.id
+                    ? "not-allowed"
+                    : "pointer",
+              }}
             >
-              <List.Item.Meta
-                avatar={
-                  item.logo ? (
-                    <Avatar src={item.logo} alt={item.name} />
-                  ) : (
-                    <Avatar>
-                      {item.name?.charAt(0)?.toUpperCase() ?? "?"}
-                    </Avatar>
-                  )
-                }
-                title={
-                  <Space direction="horizontal" size={8}>
-                    <Text strong>{item.name}</Text>
-                  </Space>
-                }
-                description={
-                  item.introduce ? (
-                    <Paragraph style={{ marginBottom: 0 }}>
-                      {item.introduce}
-                    </Paragraph>
-                  ) : (
-                    <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                      No description provided. Click to load additional details.
-                    </Paragraph>
-                  )
-                }
-              />
+              <div style={{ position: "relative", width: "100%" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    width: "100%",
+                    gap: 12,
+                    opacity: loadingProjectId === item.id ? 0.35 : 1,
+                    transition: "opacity 0.2s ease",
+                  }}
+                >
+                  <List.Item.Meta
+                    style={{ flex: 1 }}
+                    avatar={
+                      item.logo ? (
+                        <Avatar src={item.logo} alt={item.name} />
+                      ) : (
+                        <Avatar>
+                          {item.name?.charAt(0)?.toUpperCase() ?? "?"}
+                        </Avatar>
+                      )
+                    }
+                    title={
+                      <Space direction="horizontal" size={8}>
+                        <Text strong>{item.name}</Text>
+                      </Space>
+                    }
+                    description={
+                      item.introduce ? (
+                        <Paragraph style={{ marginBottom: 0 }}>
+                          {item.introduce}
+                        </Paragraph>
+                      ) : (
+                        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                          No description provided. Click to load additional
+                          details.
+                        </Paragraph>
+                      )
+                    }
+                  />
+                </div>
+                {loadingProjectId === item.id && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: "rgba(255, 255, 255, 0.75)",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Spin size="small" />
+                  </div>
+                )}
+              </div>
             </List.Item>
           )}
         />
@@ -911,44 +1007,6 @@ function resolveBoolean(
     return fallback;
   }
   return undefined;
-}
-
-function normalizeFundingStatus(
-  value: unknown,
-  fallback: unknown
-): string | null {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-  if (typeof value === "boolean") {
-    return value ? "Has Funding" : null;
-  }
-  if (typeof fallback === "string") {
-    const trimmed = fallback.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-  if (typeof fallback === "boolean") {
-    return fallback ? "Has Funding" : null;
-  }
-  return null;
-}
-
-function buildRefs(
-  selectedResult: RootDataSearchResult | null,
-  rootdataUrl?: string | null
-): { key: string; value: string }[] | null {
-  const refs: { key: string; value: string }[] = [];
-
-  if (selectedResult?.id) {
-    refs.push({ key: "rootdataProjectId", value: selectedResult.id });
-  }
-
-  if (rootdataUrl) {
-    refs.push({ key: "rootdataUrl", value: rootdataUrl });
-  }
-
-  return refs.length > 0 ? refs : null;
 }
 
 async function safeJson(response: Response) {
